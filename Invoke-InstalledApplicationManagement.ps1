@@ -1,5 +1,80 @@
 function Invoke-InstalledApplicationManagement {
 
+    <#PSScriptInfo
+
+    .VERSION 1.0
+
+    .GUID e36a6e01-018b-4329-a42d-099c8db2e3f2
+
+    .AUTHOR Francisco Nabas
+
+    .COMPANYNAME 
+
+    .COPYRIGHT (c) 2021. All rights reserved.
+
+    .TAGS 
+
+    .LICENSEURI https://github.com/FranciscoNabas/PowerShell/blob/main/LICENSE
+
+    .PROJECTURI https://github.com/FranciscoNabas/PowerShell/blob/main/Invoke-InstalledApplicationManagement.ps1
+
+    .ICONURI 
+
+    .EXTERNALMODULEDEPENDENCIES 
+
+    .REQUIREDSCRIPTS 
+
+    .EXTERNALSCRIPTDEPENDENCIES 
+
+    .RELEASENOTES
+
+    #>
+
+    <# 
+
+    .SYNOPSIS
+
+        This solution was designed to identify applications installed on the machine and remove it if required.
+
+    .DESCRIPTION
+
+        - Check for apllications installed on the machine with the input Name.
+        - If a match is found on the registry, creates an object with its Name, Version and UninstallString.
+        - If no match is found on the registry, the Win32_Product CIM/WMI class is queried and an object is created with the app Name, Version and CimInstance.
+        - If the Uninstall switch is called, check if the installed version is less than input version and uninstall the application(s).
+        - If the ForceUninstall switch is called, uninstall the application(s) without checking the version.
+
+    .PARAMETER Name
+
+        Name of the application to manage.
+        The input will be set between wildcards.
+
+    .PARAMETER CurrentVersion
+
+        Application current version. Versions older than this will be consider superseded.
+
+    .PARAMETER Uninstall
+
+        If called will uninstall superseded versions found.
+
+    .PARAMETER ForceUninstall
+
+        Caled with the Uninstall switch. Skips the version check and uninstall the application(s) regardless of the version.
+
+    .PARAMETER MsiParameters
+
+        MSI parameters and switches to be used on the uninstallation.
+        Used ONLY when the object is found on the registry AND the UninstallString uses MsiExec.exe. In any other case it's ignored.
+
+    .EXAMPLE
+
+        Invoke-InstalledApplicationManagement -Name 'ApplicationName' -CurrentVersion '1.1.0'
+        Invoke-InstalledApplicationManagement 'ApplicationName' '1.1.0'
+        Invoke-InstalledApplicationManagement 'ApplicationName' '1.1.0' -Uninstall -MsiParameters '/qn /norestart'
+        Invoke-InstalledApplicationManagement 'ApplicationName' -Uninstall -MsiParameters '/qn /norestart' -ForceInstall
+
+    #>
+
     #Requires -RunAsAdministrator
 
     [CmdletBinding(SupportsShouldProcess)]
