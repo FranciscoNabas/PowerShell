@@ -49,7 +49,7 @@ function Invoke-InstalledApplicationManagement {
         Name of the application to manage.
         The input will be set between wildcards.
 
-    .PARAMETERVersion
+    .PARAMETER Version
 
         Application current version. Versions older than this will be consider superseded.
 
