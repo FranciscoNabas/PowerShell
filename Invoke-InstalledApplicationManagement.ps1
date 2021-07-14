@@ -49,7 +49,7 @@ function Invoke-InstalledApplicationManagement {
         Name of the application to manage.
         The input will be set between wildcards.
 
-    .PARAMETER CurrentVersion
+    .PARAMETERVersion
 
         Application current version. Versions older than this will be consider superseded.
 
@@ -68,7 +68,7 @@ function Invoke-InstalledApplicationManagement {
 
     .EXAMPLE
 
-        Invoke-InstalledApplicationManagement -Name 'ApplicationName' -CurrentVersion '1.1.0'
+        Invoke-InstalledApplicationManagement -Name 'ApplicationName' -Version '1.1.0'
         Invoke-InstalledApplicationManagement 'ApplicationName' '1.1.0'
         Invoke-InstalledApplicationManagement 'ApplicationName' '1.1.0' -Uninstall -MsiParameters '/qn /norestart'
         Invoke-InstalledApplicationManagement 'ApplicationName' -Uninstall -MsiParameters '/qn /norestart' -ForceInstall
@@ -77,32 +77,30 @@ function Invoke-InstalledApplicationManagement {
 
     #Requires -RunAsAdministrator
 
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'UseVersion')]
     param (
 
         [Parameter  (Mandatory, Position = 0, ParameterSetName = 'UseVersion')]
-        [Parameter  (Mandatory, ParameterSetName = 'ForceUninstall')]
-        [Parameter  (Mandatory, ParameterSetName = 'Uninstall')]
+        [Parameter  (Mandatory, Position = 0, ParameterSetName = 'ForceUninstall')]
+        [Parameter  (Mandatory, Position = 0, ParameterSetName = 'UninstallWVersion')]
         [ValidateNotNullOrEmpty()]
         [string]    $Name,
 
         [Parameter  (Mandatory, Position = 1, ParameterSetName = 'UseVersion')]
-        [Parameter  (Mandatory, ParameterSetName = 'Uninstall')]
+        [Parameter  (Mandatory, Position = 1, ParameterSetName = 'UninstallWVersion')]
         [ValidateNotNullOrEmpty()]
-        [string]    $CurrentVersion,
+        [string]    $Version,
 
-        [Parameter  (ParameterSetName = 'UseVersion')]
-        [Parameter  (Mandatory, ParameterSetName = 'Uninstall')]
+        [Parameter  (Mandatory, ParameterSetName = 'UninstallWVersion')]
         [Parameter  (Mandatory, ParameterSetName = 'ForceUninstall')]
         [switch]    $Uninstall,
 
         [Parameter  (Mandatory, ParameterSetName = 'ForceUninstall')]
-        [Parameter  (ParameterSetName = 'Uninstall')]
         [switch]    $ForceUninstall,
 
         [Parameter  (ParameterSetName = 'ForceUninstall')]
-        [Parameter  (ParameterSetName = 'Uninstall')]
-        [Parameter  (ParameterSetName = 'UseVersion')]
+        [Parameter  (ParameterSetName = 'UninstallWVersion')]
+        [ValidateNotNullOrEmpty()]
         [string]    $MsiParameters
 
     )
@@ -155,6 +153,7 @@ function Invoke-InstalledApplicationManagement {
         }
         #endregion
 
+        Write-Verbose "Parameter set name: '$($PSCmdlet.ParameterSetName)'"
         #region StartingNewExecution
         Add-Log -Type 'Info' -Component 'StartingNewExecution' -LogValue "################################"
         Add-Log -Type 'Info' -Component 'StartingNewExecution' -LogValue "###### Starting New Execution. #######"
@@ -177,80 +176,142 @@ function Invoke-InstalledApplicationManagement {
     
     process {
 
-        #region UsingRegistry
-        if ($RegObjects) {
-            foreach ($Object in $RegObjects) {
-                if ($PSCmdlet.ShouldProcess("[Registry] - Found file with name '$($Object.DisplayName)', version '$($Object.DisplayVersion)'", $Object, 'Query')) {
-                    if ($Object.UninstallString -like 'MsiExec*') { ## If UninstallString uses 'MsiExec.exe', we parse it and add the MsiParameters
-                        $MSIParameters += " /l*vx+! ""%windir%\Logs\[MSI]$($Object.DisplayName)-$($Object.DisplayVersion)-Uninstall.log"""
-                        $UninstallString = ($Object.UninstallString).Replace('/I', '/X')
-                        $UninstallString = $UninstallString -replace '$', " $MSIParameters"
-                        Write-Verbose "Adding application $($Object.DisplayName) to the control. $(Get-Date)"
-                        Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($Object.DisplayName) to the control."
-                        $AppProperties += [PSCustomObject]@{
-                            Name = $Object.DisplayName
-                            Version = $Object.DisplayVersion
-                            UninstallString = $UninstallString
-                            UninstallMethod = 'Registry'
-                        }
-                    }
-                    else { ## If UninstallString don't use MsiExec.exe (probably uses the app .exe), we just Invoke it,
-                        Write-Verbose "Adding application $($Object.DisplayName) to the control. $(Get-Date)"
-                        Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($Object.DisplayName) to the control."
-                        $AppProperties += [PSCustomObject]@{
-                            Name = $Object.DisplayName
-                            Version = $Object.DisplayVersion
-                            UninstallString = $Object.UninstallString
-                            UninstallMethod = 'Registry'
-                        }
-                    }
-                }
-            }
-        }
-        #endregion
+        switch ($PSCmdlet.ParameterSetName) {
+            
+            'UseVersion' {
 
-        #region UsginCimInstance
-        else { ## If no registry keys were found with the provided Name we query Win32_Product CIM\WMI class.
-            if ($Verbose) { $params = @{ Verbose = $true; Query = "Select * From Win32_Product Where Name Like '%$Name%'" } } ## Preparing the parameters for splatting on Invoke-CimInstance.
-            else { $params = @{ Query = "Select * From Win32_Product Where Name Like '%$Name%'" } }
-            $cimInstance = Get-CimInstance @params
-            if ($cimInstance) {
-                foreach ($product in $cimInstance) {
-                    if ($PSCmdlet.ShouldProcess("[cimInstance] - Found file with name '$($product.Name)', version '$($product.Version)'", $product, 'Query')) {
-                        Write-Verbose "Adding application $($product.Name) to the control. $(Get-Date)"
-                        Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($product.Name) to the control."
-                        $AppProperties += [PSCustomObject]@{
-                            Name = $product.Name
-                            Version = $product.Version
-                            UninstallMethod = 'CimMethod'
-                            CimInstance = $product
+                if ($RegObjects) {
+                    foreach ($Object in $RegObjects) {
+                        if ($PSCmdlet.ShouldProcess(("[Registry] - Found application with name '{0}', version '{1}'" -f $Object.DisplayName, $Object.DisplayVersion), $null, $null)) {
+                            if ($Object.UninstallString -like 'MsiExec*') { ## If UninstallString uses 'MsiExec.exe', we parse it and add the MsiParameters
+                                $MSIParameters += " /l*vx+! ""%windir%\Logs\[MSI]$($Object.DisplayName)-$($Object.DisplayVersion)-Uninstall.log"""
+                                $UninstallString = ($Object.UninstallString).Replace('/I', '/X')
+                                $UninstallString = $UninstallString -replace '$', " $MSIParameters"
+                                Write-Verbose "Adding application $($Object.DisplayName) to the control. $(Get-Date)"
+                                Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($Object.DisplayName) to the control."
+                                $AppProperties += [PSCustomObject]@{
+                                    Name = $Object.DisplayName
+                                    Version = $Object.DisplayVersion
+                                    UninstallString = $UninstallString
+                                    UninstallMethod = 'Registry'
+                                }
+                            }
+                            else { ## If UninstallString don't use MsiExec.exe (probably uses the app .exe), we just Invoke it,
+                                Write-Verbose "Adding application $($Object.DisplayName) to the control. $(Get-Date)"
+                                Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($Object.DisplayName) to the control."
+                                $AppProperties += [PSCustomObject]@{
+                                    Name = $Object.DisplayName
+                                    Version = $Object.DisplayVersion
+                                    UninstallString = $Object.UninstallString
+                                    UninstallMethod = 'Registry'
+                                }
+                            }
                         }
                     }
                 }
-            }
-            else {
-                if ($PSCmdlet.ShouldProcess("No products found with name '$Name' installed on the machine.", $Name, 'Query')) {
-                    Write-Verbose "Not found applications with name: $Name on the machine. $(Get-Date)."
-                    Add-Log -Type "Warning" -Component "ApplicationSearch" -LogValue "Not found applications with name: $Name on the machine."
-                    return
-                }
-            }
-        }
-        #endregion
+                #endregion
         
-        #region UninstallingApplications
-        if ($Uninstall) {
-            ## ForceInstall not called. Checking version prior to Uninstallation ##
-            if (!$ForceUninstall) {
-                $CurrentVersion = [System.Version]::Parse($CurrentVersion)
+                #region UsginCimInstance
+                else { ## If no registry keys were found with the provided Name we query Win32_Product CIM\WMI class.
+                    if ($Verbose) { $params = @{ Verbose = $true; Query = "Select * From Win32_Product Where Name Like '%$Name%'" } } ## Preparing the parameters for splatting on Invoke-CimInstance.
+                    else { $params = @{ Query = "Select * From Win32_Product Where Name Like '%$Name%'" } }
+                    $cimInstance = Get-CimInstance @params
+                    if ($cimInstance) {
+                        foreach ($product in $cimInstance) {
+                            if ($PSCmdlet.ShouldProcess(("[cimInstance] - Found application with name '{0}', version '{1}'" -f $product.Name, $product.Version), $null, $null)) {
+                                Write-Verbose "Adding application $($product.Name) to the control. $(Get-Date)"
+                                Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($product.Name) to the control."
+                                $AppProperties += [PSCustomObject]@{
+                                    Name = $product.Name
+                                    Version = $product.Version
+                                    UninstallMethod = 'CimMethod'
+                                    CimInstance = $product
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        if ($PSCmdlet.ShouldProcess("No products found with name '$Name' installed on the machine.", $null, $null)) {
+                            Write-Verbose "Not found applications with name: $Name on the machine. $(Get-Date)."
+                            Add-Log -Type "Warning" -Component "ApplicationSearch" -LogValue "Not found applications with name: $Name on the machine."
+                            return
+                        }
+                    }
+                }
+                #endregion
+                if ($PSCmdlet.ShouldProcess("Uninstall switch not called. Finishing execution.", $null, $null)) {
+                    Write-Verbose "Uninstall switch not called. Finishing execution. $(Get-Date)."
+                    Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "Uninstall switch not called. Finishing execution."
+                }
+                
+            }
+
+            'UninstallWVersion' {
+
+                if ($RegObjects) {
+                    foreach ($Object in $RegObjects) {
+                        if ($Object.UninstallString -like 'MsiExec*') { ## If UninstallString uses 'MsiExec.exe', we parse it and add the MsiParameters
+                            $MSIParameters += " /l*vx+! ""%windir%\Logs\[MSI]$($Object.DisplayName)-$($Object.DisplayVersion)-Uninstall.log"""
+                            $UninstallString = ($Object.UninstallString).Replace('/I', '/X')
+                            $UninstallString = $UninstallString -replace '$', " $MSIParameters"
+                            Write-Verbose "Adding application $($Object.DisplayName) to the control. $(Get-Date)"
+                            Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($Object.DisplayName) to the control."
+                            $AppProperties += [PSCustomObject]@{
+                                Name = $Object.DisplayName
+                                Version = $Object.DisplayVersion
+                                UninstallString = $UninstallString
+                                UninstallMethod = 'Registry'
+                            }
+                        }
+                        else { ## If UninstallString don't use MsiExec.exe (probably uses the app .exe), we just Invoke it,
+                            Write-Verbose "Adding application $($Object.DisplayName) to the control. $(Get-Date)"
+                            Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($Object.DisplayName) to the control."
+                            $AppProperties += [PSCustomObject]@{
+                                Name = $Object.DisplayName
+                                Version = $Object.DisplayVersion
+                                UninstallString = $Object.UninstallString
+                                UninstallMethod = 'Registry'
+                            }
+                        }
+                    }
+                }
+                #endregion
+        
+                #region UsginCimInstance
+                else { ## If no registry keys were found with the provided Name we query Win32_Product CIM\WMI class.
+                    if ($Verbose) { $params = @{ Verbose = $true; Query = "Select * From Win32_Product Where Name Like '%$Name%'" } } ## Preparing the parameters for splatting on Invoke-CimInstance.
+                    else { $params = @{ Query = "Select * From Win32_Product Where Name Like '%$Name%'" } }
+                    $cimInstance = Get-CimInstance @params
+                    if ($cimInstance) {
+                        foreach ($product in $cimInstance) {
+                            Write-Verbose "Adding application $($product.Name) to the control. $(Get-Date)"
+                            Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($product.Name) to the control."
+                            $AppProperties += [PSCustomObject]@{
+                                Name = $product.Name
+                                Version = $product.Version
+                                UninstallMethod = 'CimMethod'
+                                CimInstance = $product
+                            }
+                        }
+                    }
+                    else {
+                        Write-Verbose "Not found applications with name: $Name on the machine. $(Get-Date)."
+                        Add-Log -Type "Warning" -Component "ApplicationSearch" -LogValue "Not found applications with name: $Name on the machine."
+                        return
+                    }
+                }
+                #endregion
+
+                #region Uninstall
+                $Version = [System.Version]::Parse($Version)
                 if ($AppProperties) {
                     foreach ($Application in $AppProperties) {
                         $CheckVersion = [System.Version]::Parse($Application.Version)
-                        if ($CheckVersion -lt $CurrentVersion) {
+                        if ($CheckVersion -lt $Version) {
                             switch ($Application.UninstallMethod) {
                                 ## Uninstalling using the UninstallString found on HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall (x64 AND x86) ##
                                 'Registry' {
-                                    if ($PSCmdlet.ShouldProcess("[Registry] - Uninstalling application '$($Application.Name).'", $Application, 'Uninstall')) {
+                                    if ($PSCmdlet.ShouldProcess(("[Registry] - Uninstalling application '{0}'." -f $Application.Name), ("Are you sure you want to uninstall the application '{0}'?" -f $Application.Name), $null)) {
                                         Write-Verbose "Application $($Application.Name) with outdated version $($Application.Version). Calling uninstall. $(Get-Date)."
                                         Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "Application $($Application.Name) with outdated version $($Application.Version). Calling uninstall."
                                         Write-Verbose "Uninstall string: $($Application.UninstallString). $(Get-Date)."
@@ -268,7 +329,7 @@ function Invoke-InstalledApplicationManagement {
                                 }
                                 ## Application not found on registry. Uninstalling Calling the CIM Method 'Uninstall' ##
                                 'CimMethod' {
-                                    if ($PSCmdlet.ShouldProcess("[cimInstance] - Uninstalling application '$($Application.Name).'", $Application, 'Uninstall')) {
+                                    if ($PSCmdlet.ShouldProcess(("[cimInstance] - Uninstalling application '{0}'." -f $Application.Name), ("Are you sure you want to uninstall the application '{0}'?" -f $Application.Name), $null)) {
                                         Write-Verbose "Application $($Application.Name) with outdated version $($Application.Version). Calling uninstall. $(Get-Date)."
                                         Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "Application $($Application.Name) with outdated version $($Application.Version). Calling uninstall."
                                         try {
@@ -291,7 +352,7 @@ function Invoke-InstalledApplicationManagement {
                             }
                         }
                         else {
-                            if ($PSCmdlet.ShouldProcess("Application $($Application.Name) with version equal or greater than current $($Application.Version). Skipping uninstallation.", $Application, 'Uninstall')) {
+                            if ($PSCmdlet.ShouldProcess(("Application {0} with version equal or greater than current {1}. Skipping uninstallation." -f $Application.Name, $Application.Version), $null, $null)) {
                                 Write-Verbose "Application $($Application.Name) with version equal or greater than current $($Application.Version). Skipping uninstallation. $(Get-Date)."
                                 Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "Application $($Application.Name) with version equal or greater than current $($Application.Version). Skipping uninstallation."    
                             }
@@ -299,18 +360,78 @@ function Invoke-InstalledApplicationManagement {
                     }
                 }
                 else {
-                    Write-Verbose "No applications with name $Name found to uninstall. Finishing execution. $(Get-Date)."
-                    Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "No applications with name $Name found to uninstall. Finishing execution."    
+                    if ($PSCmdlet.ShouldProcess("No applications with name $Name found to uninstall. Finishing execution.", $null, $null)) {
+                        Write-Verbose "No applications with name $Name found to uninstall. Finishing execution. $(Get-Date)."
+                        Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "No applications with name $Name found to uninstall. Finishing execution."
+                    }
                 }
+                #endregion
+
             }
-            ## ForceInstall called. Skipping version check prior to uninstallation. ##
-            else {
+
+            'ForceUninstall' {
+
+                if ($RegObjects) {
+                    foreach ($Object in $RegObjects) {
+                        if ($Object.UninstallString -like 'MsiExec*') { ## If UninstallString uses 'MsiExec.exe', we parse it and add the MsiParameters
+                            $MSIParameters += " /l*vx+! ""%windir%\Logs\[MSI]$($Object.DisplayName)-$($Object.DisplayVersion)-Uninstall.log"""
+                            $UninstallString = ($Object.UninstallString).Replace('/I', '/X')
+                            $UninstallString = $UninstallString -replace '$', " $MSIParameters"
+                            Write-Verbose "Adding application $($Object.DisplayName) to the control. $(Get-Date)"
+                            Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($Object.DisplayName) to the control."
+                            $AppProperties += [PSCustomObject]@{
+                                Name = $Object.DisplayName
+                                Version = $Object.DisplayVersion
+                                UninstallString = $UninstallString
+                                UninstallMethod = 'Registry'
+                            }
+                        }
+                        else { ## If UninstallString don't use MsiExec.exe (probably uses the app .exe), we just Invoke it,
+                            Write-Verbose "Adding application $($Object.DisplayName) to the control. $(Get-Date)"
+                            Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($Object.DisplayName) to the control."
+                            $AppProperties += [PSCustomObject]@{
+                                Name = $Object.DisplayName
+                                Version = $Object.DisplayVersion
+                                UninstallString = $Object.UninstallString
+                                UninstallMethod = 'Registry'
+                            }
+                        }
+                    }
+                }
+                #endregion
+        
+                #region UsginCimInstance
+                else { ## If no registry keys were found with the provided Name we query Win32_Product CIM\WMI class.
+                    if ($Verbose) { $params = @{ Verbose = $true; Query = "Select * From Win32_Product Where Name Like '%$Name%'" } } ## Preparing the parameters for splatting on Invoke-CimInstance.
+                    else { $params = @{ Query = "Select * From Win32_Product Where Name Like '%$Name%'" } }
+                    $cimInstance = Get-CimInstance @params
+                    if ($cimInstance) {
+                        foreach ($product in $cimInstance) {
+                            Write-Verbose "Adding application $($product.Name) to the control. $(Get-Date)"
+                            Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($product.Name) to the control."
+                            $AppProperties += [PSCustomObject]@{
+                                Name = $product.Name
+                                Version = $product.Version
+                                UninstallMethod = 'CimMethod'
+                                CimInstance = $product
+                            }
+                        }
+                    }
+                    else {
+                        Write-Verbose "Not found applications with name: $Name on the machine. $(Get-Date)."
+                        Add-Log -Type "Warning" -Component "ApplicationSearch" -LogValue "Not found applications with name: $Name on the machine."
+                        return
+                    }
+                }
+                #endregion
+
+                #region Uninstall
                 if ($AppProperties) {
                     foreach ($Application in $AppProperties) {
                         switch ($Application.UninstallMethod) {
                             ## Uninstalling using the UninstallString found on HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall (x64 AND x86) ##
                             'Registry' {
-                                if ($PSCmdlet.ShouldProcess("[Registry] - Uninstalling application '$($Application.Name).'", $Application, 'Uninstall')) {
+                                if ($PSCmdlet.ShouldProcess(("[Registry] - Uninstalling application '{0}'." -f $Application.Name), ("Are you sure you want to uninstall the application '{0}'?" -f $Application.Name), $null)) {
                                     Write-Verbose "Application $($Application.Name) with outdated version $($Application.Version). Calling uninstall. $(Get-Date)."
                                     Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "Application $($Application.Name) with outdated version $($Application.Version). Calling uninstall."
                                     Write-Verbose "Uninstall string: $($Application.UninstallString). $(Get-Date)."
@@ -328,7 +449,7 @@ function Invoke-InstalledApplicationManagement {
                             }
                             ## Application not found on registry. Uninstalling Calling the CIM Method 'Uninstall' ##
                             'CimMethod' {
-                                if ($PSCmdlet.ShouldProcess("[cimInstance] - Uninstalling application '$($Application.Name).'", $Application, 'Uninstall')) {
+                                if ($PSCmdlet.ShouldProcess(("[cimInstance] - Uninstalling application '{0}'." -f $Application.Name), ("Are you sure you want to uninstall the application '{0}'?" -f $Application.Name), $null)) {
                                     Write-Verbose "Application $($Application.Name) with outdated version $($Application.Version). Calling uninstall. $(Get-Date)."
                                     Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "Application $($Application.Name) with outdated version $($Application.Version). Calling uninstall."
                                     try {
@@ -352,23 +473,18 @@ function Invoke-InstalledApplicationManagement {
                     }
                 }
                 else {
-                    Write-Verbose "No applications with name $Name found to uninstall. Finishing execution. $(Get-Date)."
-                    Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "No applications with name $Name found to uninstall. Finishing execution."    
+                    if ($PSCmdlet.ShouldProcess("No applications with name $Name found to uninstall. Finishing execution.", $null, $null)) {
+                        Write-Verbose "No applications with name $Name found to uninstall. Finishing execution. $(Get-Date)."
+                        Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "No applications with name $Name found to uninstall. Finishing execution."
+                    }
                 }
             }
+            #endregion
         }
-        #endregion
-        
-        else {
-            if ($PSCmdlet.ShouldProcess("Uninstall switch not called. Finishing execution.", $Name, 'Uninstall')) {
-                Write-Verbose "Uninstall switch not called. Finishing execution. $(Get-Date)."
-                Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "Uninstall switch not called. Finishing execution."    
-            }
-        }
-
     }
-    
+           
     end {
         
     }
+
 }
