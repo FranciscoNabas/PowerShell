@@ -150,12 +150,16 @@ function Invoke-InstalledApplicationManagement {
                         "type=`"$Type`" " +`
                         "thread=`"$([Threading.Thread]::CurrentThread.ManagedThreadId)`" " +`
                         "file=`"$Source`">"
+
+            if (!(Test-Path "$Env:windir\Logs\InstalledApplicationManagement" -PathType Container)) {
+                $null = mkdir "$Env:windir\Logs\InstalledApplicationManagement"
+            }
             try {
-                Add-Content -Path "$Env:windir\Logs\ManageSApplications-$Name-$Env:COMPUTERNAME.log" -Value $Content -Force -ErrorAction Stop
+                Add-Content -Path "$Env:windir\Logs\InstalledApplicationManagement\InstalledApplicationManagement-$Name-$Env:COMPUTERNAME.log" -Value $Content -Force -ErrorAction Stop
             }
             catch {
                 Start-Sleep -Milliseconds 700
-                Add-Content -Path "$Env:windir\Logs\ManageSApplications-$Name-$Env:COMPUTERNAME.log" -Value $Content -Force
+                Add-Content -Path "$Env:windir\Logs\InstalledApplicationManagement\InstalledApplicationManagement-$Name-$Env:COMPUTERNAME.log" -Value $Content -Force
             }
         }
 
@@ -164,8 +168,11 @@ function Invoke-InstalledApplicationManagement {
             [CmdletBinding()]
             param (
 
-                [Parameter (Mandatory = $true)]
-                [string]   $AppName
+                [Parameter (Mandatory)]
+                [string]   $AppName,
+
+                [Parameter  ()]
+                [string]    $uninstallParameters
 
             )
 
@@ -185,11 +192,11 @@ function Invoke-InstalledApplicationManagement {
             if ($RegObjects) {
                 foreach ($Object in $RegObjects) {
                     if ($Object.UninstallString -like 'MsiExec*') { ## If UninstallString uses 'MsiExec.exe', we parse it and add the MsiParameters
-                        $MSIParameters += " /l*vx+! ""%windir%\Logs\[MSI]$($Object.DisplayName)-$($Object.DisplayVersion)-Uninstall.log"""
+                        $parameters = "$uninstallParameters /l*vx+! ""%windir%\Logs\InstalledApplicationManagement\[MSI]$($Object.DisplayName)-$($Object.DisplayVersion)-Uninstall.log"""
                         $UninstallString = ($Object.UninstallString).Replace('/I', '/X')
-                        $UninstallString = $UninstallString -replace '$', " $MSIParameters"
-                        Write-Verbose "Adding application $($Object.DisplayName) to the control. $(Get-Date)"
-                        Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($Object.DisplayName) to the control."
+                        $UninstallString = $UninstallString -replace '$', " $parameters"
+                        Write-Verbose "Adding application '$($Object.DisplayName)' version '$($Object.DisplayVersion)' to the control. $(Get-Date)"
+                        Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application '$($Object.DisplayName)' version '$($Object.DisplayVersion)' to the control."
                         $AppProperties += [PSCustomObject]@{
                             Name = $Object.DisplayName
                             Version = $Object.DisplayVersion
@@ -198,8 +205,8 @@ function Invoke-InstalledApplicationManagement {
                         }
                     }
                     else { ## If UninstallString don't use MsiExec.exe (probably uses the app .exe), we just Invoke it,
-                        Write-Verbose "Adding application $($Object.DisplayName) to the control. $(Get-Date)"
-                        Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($Object.DisplayName) to the control."
+                        Write-Verbose "Adding application '$($Object.DisplayName)' version '$($Object.DisplayVersion)' to the control. $(Get-Date)"
+                        Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application '$($Object.DisplayName)' version '$($Object.DisplayVersion)' to the control."
                         $AppProperties += [PSCustomObject]@{
                             Name = $Object.DisplayName
                             Version = $Object.DisplayVersion
@@ -218,8 +225,8 @@ function Invoke-InstalledApplicationManagement {
                 $cimInstance = Get-CimInstance @params
                 if ($cimInstance) {
                     foreach ($product in $cimInstance) {
-                        Write-Verbose "Adding application $($product.Name) to the control. $(Get-Date)"
-                        Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application $($product.Name) to the control."
+                        Write-Verbose "Adding application '$($Object.DisplayName)' version '$($Object.DisplayVersion)' to the control. $(Get-Date)"
+                        Add-Log -Type "Info" -Component "ApplicationSearch" -LogValue "Adding application '$($Object.DisplayName)' version '$($Object.DisplayVersion)' to the control."
                         $AppProperties += [PSCustomObject]@{
                             Name = $product.Name
                             Version = $product.Version
@@ -272,8 +279,8 @@ function Invoke-InstalledApplicationManagement {
                             ## Uninstalling using the UninstallString found on HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall (x64 AND x86) ##
                             'Registry' {
                                 if ($PSCmdlet.ShouldProcess(("[Registry] - Uninstalling application '{0}'." -f $Application.Name), ("Are you sure you want to uninstall the application '{0}'?" -f $Application.Name), $null)) {
-                                    Write-Verbose "Application $($Application.Name) with outdated version $($Application.Version). Calling uninstall. $(Get-Date)."
-                                    Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "Application $($Application.Name) with outdated version $($Application.Version). Calling uninstall."
+                                    Write-Verbose "Uninstalling application '$($Application.Name)' version '$($Application.Version)'. $(Get-Date)."
+                                    Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "Uninstalling application '$($Application.Name)' version '$($Application.Version)'."
                                     Write-Verbose "Uninstall string: $($Application.UninstallString). $(Get-Date)."
                                     Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "Uninstall string: $($Application.UninstallString)."
                                     try {
@@ -290,8 +297,8 @@ function Invoke-InstalledApplicationManagement {
                             ## Application not found on registry. Uninstalling Calling the CIM Method 'Uninstall' ##
                             'CimMethod' {
                                 if ($PSCmdlet.ShouldProcess(("[cimInstance] - Uninstalling application '{0}'." -f $Application.Name), ("Are you sure you want to uninstall the application '{0}'?" -f $Application.Name), $null)) {
-                                    Write-Verbose "Application $($Application.Name) with outdated version $($Application.Version). Calling uninstall. $(Get-Date)."
-                                    Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "Application $($Application.Name) with outdated version $($Application.Version). Calling uninstall."
+                                    Write-Verbose "Uninstalling application '$($Application.Name)' version '$($Application.Version)'. $(Get-Date)."
+                                    Add-Log -Type "Info" -Component "UninstallApplications" -LogValue "Uninstalling application '$($Application.Name)' version '$($Application.Version)'."
                                     try {
                                         $process = $Application.CimInstance | Invoke-CimMethod -MethodName 'Uninstall'
                                         if ($process.ReturnValue -eq 0) {
@@ -339,26 +346,34 @@ function Invoke-InstalledApplicationManagement {
 
             'UseVersion' {
                 if ($PSCmdlet.ShouldProcess("Searching for applications with name '$Name' on the machine.", $null, $null)) {
-                    $appProperties = Get-InstalledApplicationManagement -AppName $Name
+                    if ($MsiParameters) { $queryParams = @{ AppName = $Name; uninstallParameters = $MsiParameters } }
+                    else { $queryParams = @{ AppName = $Name } }
+                    $appProperties = Get-InstalledApplicationManagement @queryParams
                 }
             }
 
             'UninstallWVersion' {
-                $appProperties = Get-InstalledApplicationManagement -AppName $Name
-                if ($WhatIf) { $params = @{ appObject = $appProperties; appVersion = $Version; WhatIf = $true } }
-                elseif ($Verbose) { $params = @{ appObject = $appProperties; appVersion = $Version; Verbose = $true } }
-                elseif ($WhatIf -and $Verbose) { $params = @{ appObject = $appProperties; appVersion = $Version; WhatIf = $true; Verbose = $true } }
-                else { $params = @{ appObject = $appProperties; appVersion = $Version } }
-                Remove-InstalledApplicationManagement @params
+                if ($MsiParameters) { $queryParams = @{ AppName = $Name; uninstallParameters = $MsiParameters } }
+                else { $queryParams = @{ AppName = $Name } }
+                $appProperties = Get-InstalledApplicationManagement @queryParams
+                
+                if ($WhatIf) { $removeParams = @{ appObject = $appProperties; appVersion = $Version; WhatIf = $true } }
+                elseif ($Verbose) { $removeParams = @{ appObject = $appProperties; appVersion = $Version; Verbose = $true } }
+                elseif ($WhatIf -and $Verbose) { $removeParams = @{ appObject = $appProperties; appVersion = $Version; WhatIf = $true; Verbose = $true } }
+                else { $removeParams = @{ appObject = $appProperties; appVersion = $Version } }
+                Remove-InstalledApplicationManagement @removeParams
             }
 
             'ForceUninstall' {
-                $appProperties = Get-InstalledApplicationManagement -AppName $Name
-                if ($WhatIf) { $params = @{ appObject = $appProperties; WhatIf = $true } }
-                elseif ($Verbose) { $params = @{ appObject = $appProperties; Verbose = $true } }
-                elseif ($WhatIf -and $Verbose) { $params = @{ appObject = $appProperties; WhatIf = $true; Verbose = $true } }
-                else { $params = @{ appObject = $appProperties } }
-                Remove-InstalledApplicationManagement @params
+                if ($MsiParameters) { $queryParams = @{ AppName = $Name; uninstallParameters = $MsiParameters } }
+                else { $queryParams = @{ AppName = $Name } }
+                $appProperties = Get-InstalledApplicationManagement @queryParams
+                
+                if ($WhatIf) { $removeParams = @{ appObject = $appProperties; WhatIf = $true } }
+                elseif ($Verbose) { $removeParams = @{ appObject = $appProperties; Verbose = $true } }
+                elseif ($WhatIf -and $Verbose) { $removeParams = @{ appObject = $appProperties; WhatIf = $true; Verbose = $true } }
+                else { $removeParams = @{ appObject = $appProperties } }
+                Remove-InstalledApplicationManagement @removeParams
             }
 
         }
