@@ -11,10 +11,7 @@ Param
     [String[]]  $DataType = 'All',
 
     [Parameter  (Position = 2)]
-    [String]    $UserName,
-
-    [Parameter  (Position = 3)]
-    [String]    $Search
+    [String]    $UserName
 
 )
 function Get-ChromiumBasedHistory {
@@ -39,13 +36,11 @@ function Get-ChromiumBasedHistory {
         $regex = '(htt(p|s))://([\w-]+\.)+[\w-]+(/[\w- ./?%&=]*)*?'
         $historyValue = Get-Content -Path "$env:SystemDrive\Users\$UserName\AppData\Local\$dataPath\User Data\Default\History" | Select-String -AllMatches $regex | ForEach-Object { $_.Matches.Value } | Select-Object -Unique
         foreach ($value in $historyValue) {
-            if ($value -match $Search) {
-                $chromiumHistoryOutput += [PSCustomObject]@{
-                    User     = $UserName
-                    Browser  = $BrowserBrand
-                    DataType = 'History'
-                    Data     = $value
-                }
+            $chromiumHistoryOutput += [PSCustomObject]@{
+                User     = $UserName
+                Browser  = $BrowserBrand
+                DataType = 'History'
+                Data     = $value
             }
         }
         return $chromiumHistoryOutput
@@ -73,13 +68,11 @@ function Get-ChromiumBasedBookmarks {
         $chromiumBookmarksOutput = @()
         $bookmarksUrls = (Get-Content "$env:SystemDrive\Users\$UserName\AppData\Local\$dataPath\User Data\Default\Bookmarks" | ConvertFrom-Json).roots.bookmark_bar.children.url | Select-Object -Unique
         foreach ($url in $bookmarksUrls) {
-            if ($url -match $Search) {
-                $chromiumBookmarksOutput += [PSCustomObject]@{
-                    User     = $UserName
-                    Browser  = $BrowserBrand
-                    DataType = 'Bookmarks'
-                    Data     = $url
-                }
+            $chromiumBookmarksOutput += [PSCustomObject]@{
+                User = $UserName
+                Browser = $BrowserBrand
+                DataType = 'Bookmarks'
+                Data = $url
             }
         }
         return $chromiumBookmarksOutput
@@ -108,31 +101,27 @@ function Get-InternetExplorerHistory {
     
 }
 function Get-InternetExplorerBookmarks {
-    $URLs = Get-ChildItem -Path "$Env:systemdrive\Users\" -Filter "*.url" -Recurse -ErrorAction SilentlyContinue
-    ForEach ($URL in $URLs) {
-        if ($URL.FullName -match 'Favorites') {
-            $User = $URL.FullName.split('\')[2]
-            Get-Content -Path $URL.FullName | ForEach-Object {
-                try {
-                    if ($_.StartsWith('URL')) {
-                        # parse the .url body to extract the actual bookmark location
-                        $URL = $_.Substring($_.IndexOf('=') + 1)
-                        if ($URL -match $Search) {
-                            New-Object -TypeName PSObject -Property @{
-                                User     = $User
-                                Browser  = 'IE'
-                                DataType = 'Bookmark'
-                                Data     = $URL
-                            }
-                        }
-                    }
-                }
-                catch {
-                    Write-Verbose "Error parsing url: $_"
-                }
+
+    $favoriteFiles = Get-ChildItem -Path C:\Users\$UserName\Favorites\ -Filter "*.url" -ErrorAction Ignore
+    if ($favoriteFiles) {
+        $ieBookmarksOutput = @()
+        foreach ($file in $favoriteFiles) {
+            $bookMarkName = $file.BaseName
+            $bookMarkUrl = (Get-Content -Path $file.FullName | Select-String -Pattern 'URL=') -replace '^.*URL='
+            $ieBookmarksOutput += [PSCustomObject]@{
+                User = $UserName
+                Browser = 'Internet Explorer'
+                DataType = 'Bookmarks'
+                Name = $bookMarkName
+                Data = $bookMarkUrl
             }
         }
     }
+    else {
+        continue "Could not find IE Bookmarks for user: '$UserName'. $(Get-Date)."
+    }
+    return $ieBookmarksOutput
+    
 }
 function Get-FireFoxHistory {
     $Path = "$Env:systemdrive\Users\$UserName\AppData\Roaming\Mozilla\Firefox\Profiles\"
