@@ -32,14 +32,15 @@ function Get-ChromiumBasedHistory {
     }
 
     if (!(Test-Path -Path "$env:SystemDrive\Users\$UserName\AppData\Local\$dataPath\User Data\Default\History" -PathType Leaf -ErrorAction Ignore)) {
-        continue "Could not find Chrome History for username: $UserName. $(Get-Date)."
+        continue "Could not find Chrome History for username: '$UserName'. $(Get-Date)."
     }
     else {
+        $chromiumHistoryOutput = @()
         $regex = '(htt(p|s))://([\w-]+\.)+[\w-]+(/[\w- ./?%&=]*)*?'
         $historyValue = Get-Content -Path "$env:SystemDrive\Users\$UserName\AppData\Local\$dataPath\User Data\Default\History" | Select-String -AllMatches $regex | ForEach-Object { $_.Matches.Value } | Select-Object -Unique
         foreach ($value in $historyValue) {
             if ($value -match $Search) {
-                return [PSCustomObject]@{
+                $chromiumHistoryOutput += [PSCustomObject]@{
                     User     = $UserName
                     Browser  = $BrowserBrand
                     DataType = 'History'
@@ -47,6 +48,7 @@ function Get-ChromiumBasedHistory {
                 }
             }
         }
+        return $chromiumHistoryOutput
     }
             
 }
@@ -65,13 +67,14 @@ function Get-ChromiumBasedBookmarks {
     }
 
     if (!(Test-Path -Path "$env:SystemDrive\Users\$UserName\AppData\Local\$dataPath\User Data\Default\Bookmarks" -PathType Leaf -ErrorAction Ignore)) {
-        continue "Could not find Chrome History for username: $UserName. $(Get-Date)."
+        continue "Could not find Chrome History for username: '$UserName'. $(Get-Date)."
     }
     else {
+        $chromiumBookmarksOutput = @()
         $bookmarksUrls = (Get-Content "$env:SystemDrive\Users\$UserName\AppData\Local\$dataPath\User Data\Default\Bookmarks" | ConvertFrom-Json).roots.bookmark_bar.children.url | Select-Object -Unique
         foreach ($url in $bookmarksUrls) {
             if ($url -match $Search) {
-                return [PSCustomObject]@{
+                $chromiumBookmarksOutput += [PSCustomObject]@{
                     User     = $UserName
                     Browser  = $BrowserBrand
                     DataType = 'Bookmarks'
@@ -79,35 +82,30 @@ function Get-ChromiumBasedBookmarks {
                 }
             }
         }
+        return $chromiumBookmarksOutput
     }
 }
 function Get-InternetExplorerHistory {
+    
+    $userProfileSid = ([System.Security.Principal.NTAccount] $UserName).Translate([System.Security.Principal.SecurityIdentifier]).Value
     [void](New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS)
-    $Paths = Get-ChildItem 'HKU:\' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'S-1-5-21-[0-9]+-[0-9]+-[0-9]+-[0-9]+$' }
-    ForEach ($Path in $Paths) {
-        $User = ([System.Security.Principal.SecurityIdentifier] $Path.PSChildName).Translate( [System.Security.Principal.NTAccount]) | Select -ExpandProperty Value
-        $Path = $Path | Select-Object -ExpandProperty PSPath
-        $UserPath = "$Path\Software\Microsoft\Internet Explorer\TypedURLs"
-        if (-not (Test-Path -Path $UserPath)) {
-            Write-Verbose "[!] Could not find IE History for SID: $Path"
-        }
-        else {
-            Get-Item -Path $UserPath -ErrorAction SilentlyContinue | ForEach-Object {
-                $Key = $_
-                $Key.GetValueNames() | ForEach-Object {
-                    $Value = $Key.GetValue($_)
-                    if ($Value -match $Search) {
-                        New-Object -TypeName PSObject -Property @{
-                            User     = $UserName
-                            Browser  = 'IE'
-                            DataType = 'History'
-                            Data     = $Value
-                        }
-                    }
-                }
+    if (!(Test-Path -Path "HKU:\$userProfileSid\SOFTWARE\Microsoft\Internet Explorer\TypedURLs\" -ErrorAction Ignore)) {
+        continue "Could not find IE History for user: '$UserName'. $(Get-Date)."
+    }
+    else {
+        $ieHistoryOutput = @()
+        $typedUrls = Get-Item -Path "HKU:\$userProfileSid\SOFTWARE\Microsoft\Internet Explorer\TypedURLs\" -ErrorAction Ignore
+        foreach ($valueName in $typedUrls.GetValueNames()) {
+            $ieHistoryOutput += [PSCustomObject]@{
+                User = $UserName
+                Browser = 'Internet Explorer'
+                DataType = 'History'
+                Data = $typedUrls.GetValue($valueName)
             }
         }
+        return $ieHistoryOutput
     }
+    
 }
 function Get-InternetExplorerBookmarks {
     $URLs = Get-ChildItem -Path "$Env:systemdrive\Users\" -Filter "*.url" -Recurse -ErrorAction SilentlyContinue
