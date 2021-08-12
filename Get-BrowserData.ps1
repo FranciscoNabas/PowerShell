@@ -124,37 +124,46 @@ function Get-InternetExplorerBookmarks {
     
 }
 function Get-FireFoxHistory {
-    $Path = "$Env:systemdrive\Users\$UserName\AppData\Roaming\Mozilla\Firefox\Profiles\"
-    if (-not (Test-Path -Path $Path)) {
-        Write-Verbose "[!] Could not find FireFox History for username: $UserName"
+
+    if (!(Test-Path -Path "$env:SystemDrive\Users\$UserName\AppData\Roaming\Mozilla\Firefox\Profiles\" -ErrorAction Ignore)) {
+        continue "Could not find FireFox History for username: '$UserName'. $(Get-Date)."
     }
     else {
-        $Profiles = Get-ChildItem -Path "$Path\*.default\" -ErrorAction SilentlyContinue
-        $Regex = '(htt(p|s))://([\w-]+\.)+[\w-]+(/[\w- ./?%&=]*)*?'
-        $Value = Get-Content $Profiles\places.sqlite | Select-String -Pattern $Regex -AllMatches | Select-Object -ExpandProperty Matches | Sort -Unique
-        $Value.Value | ForEach-Object {
-            if ($_ -match $Search) {
-                ForEach-Object {
-                    New-Object -TypeName PSObject -Property @{
-                        User     = $UserName
-                        Browser  = 'Firefox'
-                        DataType = 'History'
-                        Data     = $_
-                    }    
-                }
+        $firefoxHistoryOutput = @()
+        $placesFile = Get-ChildItem -Path "$env:SystemDrive\Users\$UserName\AppData\Roaming\Mozilla\Firefox\Profiles\" -Recurse -Force -Filter 'places.sqlite' -ErrorAction Ignore
+        $regex = '(htt(p|s))://([\w-]+\.)+[\w-]+(/[\w- ./?%&=]*)*?'
+        $historyUrls = (Get-Content $placesFile.FullName | Select-String -Pattern $regex -AllMatches).Matches.Value | Select-Object -Unique
+        foreach ($url in $historyUrls) {
+            $firefoxHistoryOutput += [PSCustomObject]@{
+                User = $UserName
+                Browser = 'Firefox'
+                DataType = 'History'
+                Data = $url
             }
         }
     }
+
 }
+
 if (!$UserName) {
-    $UserName = "$ENV:USERNAME"
+    $UserName = (Get-WmiObject -Query "Select UserName From Win32_ComputerSystem").UserName -replace '^.*\\'
 }
+
+
 if (($Browser -Contains 'All') -or ($Browser -Contains 'Chrome')) {
     if (($DataType -Contains 'All') -or ($DataType -Contains 'History')) {
-        Get-ChromeHistory
+        Get-ChromiumBasedHistory
     }
     if (($DataType -Contains 'All') -or ($DataType -Contains 'Bookmarks')) {
-        Get-ChromeBookmarks
+        Get-ChromiumBasedBookmarks
+    }
+}
+if (($Browser -Contains 'All') -or ($Browser -Contains 'Edge')) {
+    if (($DataType -Contains 'All') -or ($DataType -Contains 'History')) {
+        Get-ChromiumBasedHistory -BrowserBrand 'Edge'
+    }
+    if (($DataType -Contains 'All') -or ($DataType -Contains 'Bookmarks')) {
+        Get-ChromiumBasedBookmarks -BrowserBrand 'Edge'
     }
 }
 if (($Browser -Contains 'All') -or ($Browser -Contains 'IE')) {
